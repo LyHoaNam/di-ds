@@ -1,5 +1,38 @@
 # Mockup Layout
 
+## Root component
+1) application menu
+- list url
+- active page
+
+2) Global floating area
+- Modal 
+- Error message
+
+3) Content area
+- table
+- form
+- ...
+
+```
++---------------------------------------------------------------------------------------------+
+|                                   Application Layout                                        |
++-------------------------------+-------------------------------------------------------------+
+|                               |                                                             |
+|      Application Menu         |                       Content Area                          |
+|   +-----------------------+   |                                                             |
+|   |                       |   |                                                             |
+|   |   Page 1              |   |                                                             |
+|   |                       |   |                                                             |
+|   |   1. Page 1.1         |   |                                                             |
+|   |   2. Page 1.2         |   |                                                             |
+|   |   3. Page 1.3         |   |                                                             |
+|   +-----------------------+   |                                                             |
++-------------------------------+-------------------------------------------------------------+
+|        Global floating Area                |        [Modal/Pop-up message]                  |
++---------------------------------------------------------------------------------------------+
+```
+
 ## Table
   - Sorting, filtering, and pagination  
   - Infinite scrolling for large datasets
