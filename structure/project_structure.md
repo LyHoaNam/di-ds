@@ -395,13 +395,15 @@ pages/: Route-level components
 ## 2. Consistent Module Structure
 Each feature/entity follows the same internal structure:
 
-Code
+```
 feature/
 ├── api/          # External API interactions
 ├── model/        # State management & domain logic
 ├── ui/           # Feature-specific UI components
 ├── lib/          # Feature utilities & helpers
 └── hooks/        # Custom hooks for the feature
+```
+
 ## 3. Separation of Concerns
 Static components: Pure presentation, no business logic
 Layout components: Structure and arrangement
