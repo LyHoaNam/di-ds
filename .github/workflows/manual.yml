@@ -5,8 +5,8 @@ name: AI issue workflow
 # Controls when the action will run. Workflow runs when manually triggered using the UI
 # or API.
 on:
- issues:
-    types: [opened, labeled]
+ issue_comment:
+    types: [created]
     
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -25,4 +25,4 @@ jobs:
     steps:
     # Runs a single command using the runners shell
     - name: Send greeting
-      run: echo "Hello ${{ inputs.name }}"
+      run: echo "Hello ${{ github.event.comment.user.login }}"
