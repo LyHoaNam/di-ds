@@ -1,36 +1,87 @@
-# This is a basic workflow that is manually triggered
-
 name: AI issue workflow
-
-# Controls when the action will run. Workflow runs when manually triggered using the UI
-# or API.
 on:
- issue_comment:
+  issue_comment:
     types: [created]
-    
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+
 jobs:
-  # This workflow contains a single job called "greet"
-  greet:
+  answer-from-comment:
     timeout-minutes: 20
     if: github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '@great')
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
-      contents: write
+      contents: read
+      models: read
       issues: write
       pull-requests: write
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-    # Post a comment to the issue
-    - name: Post greeting comment
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Build prompt from comment + all.md
+      id: prepare
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        COMMENT_BODY="${{ github.event.comment.body }}"
+        USER_QUESTION="${COMMENT_BODY#@great}"
+        USER_QUESTION="$(echo "$USER_QUESTION" | sed -E 's/^\s+//; s/\s+$//')"
+
+        if [ -z "$USER_QUESTION" ]; then
+          USER_QUESTION="Please summarize all.md"
+        fi
+
+        if [ ! -f all.md ]; then
+          echo "all.md not found at repository root" >&2
+          exit 1
+        fi
+
+        {
+          echo "question<<EOF"
+          echo "$USER_QUESTION"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "You are an assistant answering only from the file all.md."
+          echo "If the answer is not in all.md, say you cannot find it in all.md."
+          echo
+          echo "Question:"
+          echo "$USER_QUESTION"
+          echo
+          echo "Context (all.md):"
+          cat all.md
+        } > prompt.txt
+
+    - name: Generate answer with GitHub AI Inference
+      id: ai
+      uses: actions/ai-inference@v1
+      with:
+        model: openai/gpt-4o-mini
+        prompt-file: ./prompt.txt
+        max-completion-tokens: 700
+
+    - name: Reply to the comment
       uses: actions/github-script@v7
+      env:
+        ASKER: ${{ github.event.comment.user.login }}
+        QUESTION: ${{ steps.prepare.outputs.question }}
+        ANSWER: ${{ steps.ai.outputs.response }}
       with:
         script: |
-          github.rest.issues.createComment({
+          const body = [
+            `@${process.env.ASKER}`,
+            '',
+            `**Question:** ${process.env.QUESTION}`,
+            '',
+            '**Answer:**',
+            process.env.ANSWER,
+          ].join('\n');
+
+          await github.rest.issues.createComment({
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: 'Hello @${{ github.event.comment.user.login }}'
-          })
+            body
+          });
