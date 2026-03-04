@@ -1,12 +1,11 @@
 name: Choi di (oi)
 on:
   issue_comment:
-    types: [created]
+    types: [created, edited]
 
 jobs:
   answer-from-comment:
     timeout-minutes: 20
-    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@choi')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -18,14 +17,28 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    - name: Detect @choi mention
+      id: mention
+      shell: bash
+      run: |
+        set -euo pipefail
+        COMMENT_BODY="${{ github.event.comment.body }}"
+
+        if printf '%s' "$COMMENT_BODY" | grep -Eiq '(^|[[:space:]])@choi([[:space:][:punct:]]|$)'; then
+          echo "mentioned=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "mentioned=false" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Parse comment and detect referenced file
       id: prepare
+      if: steps.mention.outputs.mentioned == 'true'
       shell: bash
       run: |
         set -euo pipefail
 
         COMMENT_BODY="${{ github.event.comment.body }}"
-        USER_QUESTION="${COMMENT_BODY//@choi/}"
+        USER_QUESTION="$(printf '%s' "$COMMENT_BODY" | sed -E 's/@[cC][hH][oO][iI]//g')"
         USER_QUESTION="$(echo "$USER_QUESTION" | sed -E 's/^\s+//; s/\s+$//')"
 
         FILE_REF="$(printf '%s' "$COMMENT_BODY" | grep -oE '(^|[[:space:]])#[^[:space:]#]+' | head -n1 | sed -E 's/^[[:space:]]*#//')"
@@ -75,7 +88,7 @@ jobs:
         } > prompt.txt
 
     - name: Ask user to provide file reference
-      if: steps.prepare.outputs.needs_file == 'true'
+      if: steps.mention.outputs.mentioned == 'true' && steps.prepare.outputs.needs_file == 'true'
       uses: actions/github-script@v7
       env:
         ASKER: ${{ github.event.comment.user.login }}
@@ -98,7 +111,7 @@ jobs:
 
     - name: Generate answer with GitHub AI Inference
       id: ai
-      if: steps.prepare.outputs.needs_file == 'false'
+      if: steps.mention.outputs.mentioned == 'true' && steps.prepare.outputs.needs_file == 'false'
       uses: actions/ai-inference@v1
       with:
         model: openai/gpt-4o-mini
@@ -106,7 +119,7 @@ jobs:
         max-completion-tokens: 700
 
     - name: Reply to the comment
-      if: steps.prepare.outputs.needs_file == 'false'
+      if: steps.mention.outputs.mentioned == 'true' && steps.prepare.outputs.needs_file == 'false'
       uses: actions/github-script@v7
       env:
         ASKER: ${{ github.event.comment.user.login }}
