@@ -1,0 +1,134 @@
+name: Choi di (oi)
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  answer-from-comment:
+    timeout-minutes: 20
+    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@choi')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      models: read
+      issues: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Parse comment and detect referenced file
+      id: prepare
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        COMMENT_BODY="${{ github.event.comment.body }}"
+        USER_QUESTION="${COMMENT_BODY//@choi/}"
+        USER_QUESTION="$(echo "$USER_QUESTION" | sed -E 's/^\s+//; s/\s+$//')"
+
+        FILE_REF="$(printf '%s' "$COMMENT_BODY" | grep -oE '(^|[[:space:]])#[^[:space:]#]+' | head -n1 | sed -E 's/^[[:space:]]*#//')"
+        FILE_REF="$(printf '%s' "$FILE_REF" | sed -E 's/[),.;:!?]+$//')"
+
+        {
+          echo "question<<EOF"
+          echo "$USER_QUESTION"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "file_ref=$FILE_REF"
+        } >> "$GITHUB_OUTPUT"
+
+        if [ -z "$FILE_REF" ]; then
+          {
+            echo "needs_file=true"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if [ ! -f "$FILE_REF" ]; then
+          {
+            echo "needs_file=true"
+            echo "missing_file=true"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        {
+          echo "needs_file=false"
+          echo "missing_file=false"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "You are an assistant answering based only on the user's comment and the referenced file."
+          echo "If the answer is not in the referenced file, say you cannot find it in that file."
+          echo
+          echo "User comment:"
+          echo "$USER_QUESTION"
+          echo
+          echo "Referenced file: $FILE_REF"
+          echo
+          echo "File content:"
+          cat "$FILE_REF"
+        } > prompt.txt
+
+    - name: Ask user to provide file reference
+      if: steps.prepare.outputs.needs_file == 'true'
+      uses: actions/github-script@v7
+      env:
+        ASKER: ${{ github.event.comment.user.login }}
+        MISSING_FILE: ${{ steps.prepare.outputs.missing_file }}
+        FILE_REF: ${{ steps.prepare.outputs.file_ref }}
+      with:
+        script: |
+          const isMissing = process.env.MISSING_FILE === 'true';
+          const fileRef = process.env.FILE_REF || '';
+          const guidance = isMissing
+            ? `I can't find ${fileRef}. Please provide a valid file path using #<path> and comment again.`
+            : 'Please provide a file path using #<path> in your comment, then I can continue.';
+
+          await github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `@${process.env.ASKER}\n\n${guidance}`
+          });
+
+    - name: Generate answer with GitHub AI Inference
+      id: ai
+      if: steps.prepare.outputs.needs_file == 'false'
+      uses: actions/ai-inference@v1
+      with:
+        model: openai/gpt-4o-mini
+        prompt-file: ./prompt.txt
+        max-completion-tokens: 700
+
+    - name: Reply to the comment
+      if: steps.prepare.outputs.needs_file == 'false'
+      uses: actions/github-script@v7
+      env:
+        ASKER: ${{ github.event.comment.user.login }}
+        QUESTION: ${{ steps.prepare.outputs.question }}
+        FILE_REF: ${{ steps.prepare.outputs.file_ref }}
+        ANSWER: ${{ steps.ai.outputs.response }}
+      with:
+        script: |
+          const body = [
+            `@${process.env.ASKER}`,
+            '',
+            `**Question:** ${process.env.QUESTION}`,
+            '',
+            `**File:** ${process.env.FILE_REF}`,
+            '',
+            '**Answer:**',
+            process.env.ANSWER,
+          ].join('\n');
+
+          await github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body
+          });
